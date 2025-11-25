@@ -1,0 +1,99 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row g-3">
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-body d-flex align-items-center justify-content-between">
+        <div>
+          <h2 class="h4 mb-1">Welcome, {{ full_name | e }}</h2>
+          <p class="mb-0 text-muted">Role: <strong>{{ role | e }}</strong> — <small>{{ email | e }}</small></p>
+        </div>
+        <!-- example screenshot (local path included for your reference) -->
+        <div style="max-width:180px">
+          <img src="/mnt/data/7e7314a6-fc29-4d29-8ce9-fb948beb8eff.png" alt="screenshot" class="img-fluid rounded">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- action cards -->
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body d-flex flex-column">
+        <h5 class="card-title">Book Appointment</h5>
+        <p class="card-text">Create a new appointment with a doctor.</p>
+        <a href="{{ url_for('create_appointment_view') }}" class="btn btn-primary mt-auto">Book now</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body d-flex flex-column">
+        <h5 class="card-title">My Appointments</h5>
+        <p class="card-text">View or manage appointments below.</p>
+        <a href="{{ url_for('appointments') }}" class="btn btn-outline-primary mt-auto">Open list (same page)</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-md-4">
+    <div class="card h-100">
+      <div class="card-body d-flex flex-column">
+        <h5 class="card-title">Profile</h5>
+        <p class="card-text">Quick view of your session info (debug).</p>
+        <a href="{{ url_for('whoami') }}" class="btn btn-outline-secondary mt-auto">View profile (JSON)</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- Inline Appointments list (appears under the cards on same page) -->
+  <div class="col-12">
+    <div class="card mt-2">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-center">
+          <h5 class="card-title mb-0">Appointments (Insecure)</h5>
+          <a class="btn btn-sm btn-primary" href="{{ url_for('create_appointment_view') }}">Create new</a>
+        </div>
+
+        <div class="table-responsive mt-3">
+          <table class="table table-bordered table-sm">
+            <thead class="table-light">
+              <tr>
+                <th>ID</th>
+                <th>Patient</th>
+                <th>Doctor</th>
+                <th>Date</th>
+                <th>Time</th>
+                <th>Reason</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for a in appointments %}
+              <tr>
+                <td>{{ a.id }}</td>
+                <td>{{ a.patient_username }}</td>
+                <td>{{ a.doctor_name }}</td>
+                <td>{{ a.date }}</td>
+                <td>{{ a.time }}</td>
+                <!-- we intentionally keep |safe here for insecure baseline demonstration -->
+                <td>{{ a.reason | safe }}</td>
+                <td>
+                  <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('edit_appointment_view', apt_id=a.id) }}">Edit</a>
+                  <a class="btn btn-sm btn-outline-danger" href="{{ url_for('delete_appointment_view', apt_id=a.id) }}">Delete</a>
+                </td>
+              </tr>
+              {% else %}
+              <tr><td colspan="7" class="text-center text-muted">No appointments yet.</td></tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+
+        <p class="small text-muted mt-2">Note: This page shows all appointments (insecure baseline). We'll restrict this by role when we secure the app.</p>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

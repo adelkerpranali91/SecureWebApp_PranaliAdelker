@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="card-body">
+    <h1 class="h3">Welcome to ClinicApp</h1>
+    <p class="mb-2">Hello, {{ full_name | e }} — role: <strong>{{ role | e }}</strong></p>
+
+    <div class="list-group">
+      <a class="list-group-item list-group-item-action" href="{{ url_for('create_appointment_view') }}">Book an appointment</a>
+      <a class="list-group-item list-group-item-action" href="{{ url_for('appointments') }}">View appointments</a>
+      <a class="list-group-item list-group-item-action" href="{{ url_for('whoami') }}">View profile JSON (debug)</a>
+    </div>
+
+    <p class="small text-muted mt-3">This is the simple homepage/dashboard placeholder. We'll make it secure later.</p>
+  </div>
+</div>
+{% endblock %}
