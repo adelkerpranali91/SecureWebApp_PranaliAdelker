@@ -1,0 +1,21 @@
+﻿# Ignore DB files
+*.db
+clinic.db
+restore_app.db
+test_app.db
+
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore backups and large bundles
+*.bundle
+
+# Ignore test files
+test_*.py
+
+# VSCode settings
+.vscode/
+
+# Environment files
+.env
