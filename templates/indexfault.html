@@ -1,10 +1,13 @@
-# app.py
-from flask import Flask, render_template, request, redirect, url_for, session, flash
+import os
+from flask import Flask, render_template, request, redirect, url_for, session, flash, jsonify
+import sqlite3
+
+# import model helpers from your project
 from models.db_insecure import (
     init_db,
     create_user,
     get_user_by_email,
-    # db helper
+    # db helper to open the same DB
     get_conn,
     # appointment helpers
     create_appointment,
@@ -14,7 +17,6 @@ from models.db_insecure import (
     delete_appointment,
 )
 
-
 app = Flask(__name__)
 app.secret_key = "dev-insecure-secret"  # intentionally weak for insecure baseline
 
@@ -23,72 +25,24 @@ with app.app_context():
     init_db()
 
 
-# helper: appointments for a doctor
-# Robust: return rows from appointments as list of dicts (column-name -> value)
-def _fetch_appointments_by_sql(sql, params=()):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(sql, params)
-    rows = cur.fetchall()
-    cols = [c[0] for c in cur.description] if cur.description else []
-    conn.close()
-    results = []
-    for r in rows:
-        # r is a tuple, cols has column names in same order
-        results.append({cols[i]: r[i] for i in range(len(cols))})
-    return results
-
-def get_appointments_for_doctor(doctor_full_name):
-    # Try common column names first (doctor_name), fallback to scanning all rows and matching
-    # Use parameterised query to avoid injection
-    try:
-        return _fetch_appointments_by_sql(
-            "SELECT * FROM appointments WHERE doctor_name = ? ORDER BY date, time",
-            (doctor_full_name,)
-        )
-    except Exception:
-        # fallback: return all and filter in Python
-        all_appts = _fetch_appointments_by_sql("SELECT * FROM appointments ORDER BY date, time")
-        return [a for a in all_appts if any(
-            str(v).lower() == doctor_full_name.lower() for k, v in a.items() if 'doctor' in k.lower()
-        )]
-
-def get_appointments_for_patient(patient_identifier):
-    # patient_identifier might be full name or username — try common column names then fallback
-    try:
-        return _fetch_appointments_by_sql(
-            "SELECT * FROM appointments WHERE patient_name = ? ORDER BY date, time",
-            (patient_identifier,)
-        )
-    except Exception:
-        # fallback: try patient_username, then filter any column that looks like patient
-        try:
-            return _fetch_appointments_by_sql(
-                "SELECT * FROM appointments WHERE patient_username = ? ORDER BY date, time",
-                (patient_identifier,)
-            )
-        except Exception:
-            all_appts = _fetch_appointments_by_sql("SELECT * FROM appointments ORDER BY date, time")
-            return [a for a in all_appts if any(
-                str(v).lower() == patient_identifier.lower() for k, v in a.items() if 'patient' in k.lower()
-            )]
-
-
-
 # -----------------------
 # Index / home
 # -----------------------
 @app.route("/")
 def index():
-    if "email" in session:
-        full_name = session.get("full_name", "")
-        role = session.get("role", "")
-        return render_template("index.html", full_name=full_name, role=role)
-    return redirect(url_for("login"))
+    # If not logged in, redirect to login
+    if "email" not in session:
+        return redirect(url_for("login"))
+
+    full_name = session.get("full_name", "")
+    role = session.get("role", "")
+    # pass appointments so index.html can include list fragment when requested
+    apts = get_all_appointments()
+    return render_template("index.html", full_name=full_name, role=role, appointments=apts)
 
 
 # -----------------------
-# Dashboard (shows welcome cards AND inline appointment list)
+# Dashboard (same as index, kept for compatibility)
 # -----------------------
 @app.route("/dashboard")
 def dashboard():
@@ -96,51 +50,16 @@ def dashboard():
         flash("Please login first")
         return redirect(url_for("login"))
 
-    role = session.get("role", "")
-    full_name = session.get("full_name", "")
-    email = session.get("email", "")
+    apts = get_all_appointments()
 
-    # Choose which appointments to show based on role
-    if role == "doctor":
-        # show only appointments assigned to this doctor
-        apts = get_appointments_for_doctor(full_name)
-        doctors = []   # no doctors dropdown needed for doctors
-    elif role == "patient":
-        # show only appointments for this patient
-        apts = get_appointments_for_patient(full_name)
-        # load doctors for the inline booking form
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT id, full_name FROM users WHERE LOWER(role)=? ORDER BY full_name;", ("doctor",))
-        rows = cur.fetchall()
-        conn.close()
-        doctors = [{"id": r[0], "full_name": r[1]} for r in rows] if rows else []
-    else:
-        # fallback (admin or other): show all appointments
-        apts = get_all_appointments()
-        doctors = []
-
-    return render_template(
-        "index.html",
-        full_name=full_name,
-        role=role,
-        email=email,
-        appointments=apts,
-        doctors=doctors
-    )
-
-    # ------------------------------------------------------------------
-
+    # Render the same index.html layout so UI is consistent
     return render_template(
         "index.html",
         full_name=session.get("full_name", ""),
         role=session.get("role", ""),
         email=session.get("email", ""),
-        appointments=apts,
-        doctors=doctors
+        appointments=apts
     )
-
-
 
 
 # -----------------------
@@ -153,8 +72,7 @@ def register():
         email = request.form.get("email", "").strip()
         password = request.form.get("password", "").strip()
         confirm = request.form.get("confirm_password", "").strip()
-        # normalize role to lowercase to avoid case mismatches later
-        role = request.form.get("role", "patient").strip().lower()
+        role = request.form.get("role", "patient")
         full_name = request.form.get("full_name", "").strip()
         phone = request.form.get("phone", "").strip()
         dob = request.form.get("date_of_birth", "").strip()
@@ -163,7 +81,7 @@ def register():
         emergency_phone = request.form.get("emergency_phone", "").strip()
         insurance = request.form.get("insurance_number", "").strip()
 
-        # simple server-side required checks (still insecure baseline overall)
+        # simple server-side required checks (insecure baseline)
         required = [email, password, confirm, full_name, phone, dob, address, emergency_name, emergency_phone]
         if any(not v for v in required):
             flash("Please fill all required fields (email, password, full name, phone, DOB, address, emergency contact).")
@@ -177,10 +95,8 @@ def register():
 
         # create user (INSECURE: plaintext password, raw SQL inside create_user)
         try:
-            # pass normalized role
             create_user(email, password, role, full_name, phone, dob, address, emergency_name, emergency_phone, insurance)
         except Exception as e:
-            # rough error handling — keep simple for insecure baseline
             flash(f"Error creating user: {e}")
             return redirect(url_for("register"))
 
@@ -188,7 +104,6 @@ def register():
         return redirect(url_for("login"))
 
     return render_template("auth/register.html")
-
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -205,7 +120,6 @@ def login():
             session["full_name"] = user.get("full_name")
             session["role"] = user.get("role")
             flash("Logged in (insecure).")
-            # redirect to dashboard per your request
             return redirect(url_for("dashboard"))
 
         flash("Invalid credentials")
@@ -234,18 +148,11 @@ def appointments():
     return redirect(url_for("dashboard"))
 
 
-
 @app.route('/appointments/create', methods=['GET', 'POST'])
 def create_appointment_view():
-
-    # --- Block doctors from creating appointments ---
     if "email" not in session:
         flash("Please login first")
         return redirect(url_for("login"))
-
-    if session.get("role") != "patient":
-        flash("Only patients may create appointments.")
-        return redirect(url_for("dashboard"))
 
     if request.method == 'POST':
         # read the submitted form fields
@@ -260,37 +167,30 @@ def create_appointment_view():
             flash("Please fill all required fields.")
             return redirect(url_for('create_appointment_view'))
 
-        # use your existing insecure baseline helper
-        create_appointment(patient_name, doctor_name, date, time, reason)
+        # use your existing helper to insert appointment (stores doctor_name string)
+        try:
+            create_appointment(patient_name, doctor_name, date, time, reason)
+            flash("Appointment created successfully.")
+        except Exception as e:
+            flash(f"Error creating appointment: {e}")
 
-        flash("Appointment created successfully.")
         return redirect(url_for('dashboard'))
 
-    # GET request -> load doctors from users table
+    # GET request -> load doctors from users table using get_conn()
     conn = get_conn()
     cur = conn.cursor()
-
-    # Fetch id and full_name for users whose role is doctor (case-insensitive)
-    cur.execute("SELECT id, full_name FROM users WHERE LOWER(role)=? ORDER BY full_name;", ("doctor",))
+    cur.execute("SELECT full_name FROM users WHERE role='doctor' ORDER BY full_name;")
     rows = cur.fetchall()
     conn.close()
 
-    # Convert rows (tuples) into list of dicts: [{"id": 1, "full_name": "Dr Foo"}, ...]
-    doctors = [{"id": r[0], "full_name": r[1]} for r in rows] if rows else []
-
-    # debug print (remove after confirming)
-    print("DEBUG: doctors loaded ->", doctors)
+    # convert rows into list of dicts
+    doctors = [dict(r) for r in rows] if rows else []
 
     return render_template(
         "appointments/booking.html",
         patient_name=session.get("full_name", ""),
         doctors=doctors
     )
-
-
-
-
-
 
 
 @app.route("/appointments/edit/<int:apt_id>", methods=["GET", "POST"])
@@ -340,6 +240,45 @@ def delete_appointment_view(apt_id):
 
 
 # -----------------------
+# Debug helpers
+# -----------------------
+@app.route("/debug_doctors")
+def debug_doctors():
+    try:
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT id, full_name, role FROM users WHERE role = 'doctor' ORDER BY full_name;")
+        rows = cur.fetchall()
+        conn.close()
+        docs = [dict(r) for r in rows]
+        return jsonify({"doctors": docs})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/debug_db")
+def debug_db():
+    try:
+        info = {}
+        info["cwd"] = os.getcwd()
+        # try to read DB_PATH if present in models
+        from models import db_insecure
+        info["DB_PATH_in_model"] = getattr(db_insecure, "DB_PATH", None)
+        info["db_file_exists"] = os.path.exists(os.path.join(info["cwd"], info["DB_PATH_in_model"])) if info["DB_PATH_in_model"] else False
+
+        # try to read users (use get_conn() so the app uses the same DB)
+        conn = get_conn()
+        cur = conn.cursor()
+        cur.execute("SELECT id, full_name, email, role FROM users ORDER BY id;")
+        rows = cur.fetchall()
+        conn.close()
+        info["users"] = [dict(r) for r in rows]
+        return jsonify(info)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# -----------------------
 # Simple debug route to view current session (optional)
 # -----------------------
 @app.route("/whoami")
@@ -347,60 +286,6 @@ def whoami():
     if "email" in session:
         return {"email": session.get("email"), "full_name": session.get("full_name"), "role": session.get("role")}
     return {"logged_in": False}
-
-
-# DEBUG: show doctor rows fetched from the DB (safe, temporary)
-@app.route("/debug_doctors")
-def debug_doctors():
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-        cur.execute("SELECT id, full_name, role FROM users ORDER BY full_name;")
-        rows = cur.fetchall()
-        conn.close()
-        # rows are tuples (id, full_name, role) — convert properly to dicts
-        docs = [{"id": r[0], "full_name": r[1], "role": r[2]} for r in rows]
-        return {"doctors_all": docs}
-    except Exception as e:
-        return {"error": str(e)}
-
-
-#DEBUG: show patient name in appointmnet list to show the appointment list
-@app.route("/debug_appts")
-def debug_appts():
-    try:
-        conn = get_conn()
-        cur = conn.cursor()
-
-        # Get table schema (columns)
-        cur.execute("PRAGMA table_info(appointments);")
-        cols_raw = cur.fetchall()  # rows like (cid, name, type, notnull, dflt_value, pk)
-        # Convert to plain dicts
-        cols = [
-            {"cid": c[0], "name": c[1], "type": c[2], "notnull": c[3], "dflt_value": c[4], "pk": c[5]}
-            for c in cols_raw
-        ]
-
-        # Get all appointment rows
-        cur.execute("SELECT * FROM appointments;")
-        rows_raw = cur.fetchall()
-        # Column names in order
-        col_names = [c["name"] for c in cols]
-
-        # Convert rows to list of dicts {colname: value}
-        rows = []
-        for r in rows_raw:
-            # r may be a tuple or sqlite3.Row; convert to tuple/list first
-            rvals = list(r)
-            rows.append({col_names[i]: rvals[i] for i in range(len(col_names))})
-
-        conn.close()
-        return {"columns": cols, "rows": rows}
-    except Exception as e:
-        # return error text so the UI shows it plainly
-        return {"error": str(e)}
-
-
 
 
 if __name__ == "__main__":
