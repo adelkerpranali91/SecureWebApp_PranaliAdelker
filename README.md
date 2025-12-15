@@ -1,4 +1,4 @@
-S.H.E.I.L.D.
+
 S.H.E.I.L.D. (Secure Hospital Engagement Interface for Login and Data) is a secure web-based hospital appointment system that is developed to ensure the protection of sensitive healthcare information and to eliminate typical web application attacks. The system allows many user roles and controls strict access to make sure that users can only access data and functionality that they are supposed to see. Security was considered an essential design requirement and was incorporated throughout the application lifecycle.
 
 USER ROLES
